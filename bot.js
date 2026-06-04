@@ -26,13 +26,30 @@ bot.start((ctx) => {
   ctx.reply('Welcome to the Image2CSV Bot! 📸📊\nSend me a photo of a menu, table, or list, and I will extract it into a CSV file for you!');
 });
 
-bot.on('photo', async (ctx) => {
+bot.on(['photo', 'document'], async (ctx) => {
+  let fileId = null;
+  let isImage = false;
+
+  if (ctx.message.photo) {
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    fileId = photo.file_id;
+    isImage = true;
+  } else if (ctx.message.document) {
+    const doc = ctx.message.document;
+    if (doc.mime_type && doc.mime_type.startsWith('image/')) {
+      fileId = doc.file_id;
+      isImage = true;
+    } else {
+      return ctx.reply('❌ Please send an image file (PNG, JPEG, etc.) to extract data.');
+    }
+  }
+
+  if (!isImage || !fileId) return;
+
   const messageMsg = await ctx.reply('📸 Received image! Analyzing the data, please wait...');
   
   try {
-    // Get the highest resolution photo (the last one in the array)
-    const photo = ctx.message.photo[ctx.message.photo.length - 1];
-    const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+    const fileLink = await ctx.telegram.getFileLink(fileId);
     
     // Download image
     const imageResponse = await fetch(fileLink.href);

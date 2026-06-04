@@ -8,27 +8,9 @@ import 'dotenv/config';
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Helper to get available models
-async function getSupportedModel(apiKey) {
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-  if (!response.ok) throw new Error(`Failed to list models: ${response.status}`);
-  const data = await response.json();
-  
-  const supportedModels = data.models.filter(m => 
-    m.supportedGenerationMethods.includes('generateContent') && 
-    m.name.includes('gemini') &&
-    (m.name.includes('flash') || m.name.includes('pro')) &&
-    !m.name.includes('tts') && 
-    !m.name.includes('embedding')
-  );
-
-  if (supportedModels.length === 0) throw new Error('No supported models found.');
-  return supportedModels[0].name.replace('models/', '');
-}
-
 // 2. Bot logic
 bot.start((ctx) => {
-  ctx.reply('Welcome to the Menu2CSV Bot! 🍕🌮\\nSend me a photo of a restaurant menu card, and I will extract it into a CSV file for you!');
+  ctx.reply('Welcome to the Menu2CSV Bot! 🍕🌮\nSend me a photo of a restaurant menu card, and I will extract it into a CSV file for you!');
 });
 
 bot.on('photo', async (ctx) => {
@@ -43,10 +25,6 @@ bot.on('photo', async (ctx) => {
     const imageResponse = await fetch(fileLink.href);
     const arrayBuffer = await imageResponse.arrayBuffer();
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
-
-    // Get model
-    const modelName = await getSupportedModel(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: modelName });
 
     // AI Prompt
     const prompt = `
@@ -69,12 +47,39 @@ bot.on('photo', async (ctx) => {
       }
     };
 
-    // Extract
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    let text = response.text();
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
+    // Try multiple Gemini models in order of preference in case of 503 or overload errors
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro'];
+    let responseText = null;
+    let lastError = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting extraction using model: ${modelName}`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent([prompt, imagePart]);
+        const response = await result.response;
+        responseText = response.text();
+        console.log(`Success with model: ${modelName}`);
+        break; // Successfully got response, exit retry loop
+      } catch (err) {
+        console.error(`Error with model ${modelName}:`, err.message || err);
+        lastError = err;
+        
+        // Notify the user about trying the fallback model
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          messageMsg.message_id,
+          null,
+          `⚠️ Model ${modelName} is busy or unavailable. Attempting fallback model...`
+        ).catch(() => {});
+      }
+    }
+
+    if (!responseText) {
+      throw lastError || new Error('All Gemini models failed to process the image.');
+    }
+
+    let text = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const menuData = JSON.parse(text);
 
     // Convert to CSV

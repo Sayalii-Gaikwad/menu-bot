@@ -48,8 +48,14 @@ async function processMediaGroup(ctxList, fileIds) {
       return Buffer.from(arrayBuffer).toString('base64');
     }));
 
+    // Get custom instructions from captions in the group
+    const captions = ctxList
+      .map(c => c.message.caption)
+      .filter(caption => caption && caption.trim().length > 0);
+    const customInstructions = captions.length > 0 ? captions.join('\n') : '';
+
     // AI Prompt
-    const prompt = `
+    let prompt = `
       Analyze these images and extract all structured data into a single combined tabular format.
       
       Return ONLY a raw JSON array of objects. Do not include markdown formatting like \`\`\`json.
@@ -58,6 +64,15 @@ async function processMediaGroup(ctxList, fileIds) {
 
       Ensure the output is a valid JSON array. Do NOT include descriptions or any other fields.
     `;
+
+    if (customInstructions) {
+      prompt += `
+      
+      CRITICAL CUSTOM INSTRUCTIONS FROM USER:
+      Apply the following additional instructions to customize the data extraction:
+      "${customInstructions}"
+      `;
+    }
 
     const contents = [
       prompt,

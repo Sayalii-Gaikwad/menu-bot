@@ -10,11 +10,11 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // 2. Bot logic
 bot.start((ctx) => {
-  ctx.reply('Welcome to the Menu2CSV Bot! 🍕🌮\nSend me a photo of a restaurant menu card, and I will extract it into a CSV file for you!');
+  ctx.reply('Welcome to the Image2CSV Bot! 📸📊\nSend me a photo of a menu, table, or list, and I will extract it into a CSV file for you!');
 });
 
 bot.on('photo', async (ctx) => {
-  const messageMsg = await ctx.reply('📸 Received menu! Analyzing the image, please wait...');
+  const messageMsg = await ctx.reply('📸 Received image! Analyzing the data, please wait...');
   
   try {
     // Get the highest resolution photo (the last one in the array)
@@ -28,14 +28,11 @@ bot.on('photo', async (ctx) => {
 
     // AI Prompt
     const prompt = `
-      Analyze this image of a restaurant menu card.
-      Extract all the menu items and their prices.
+      Analyze this image and extract all structured data into a tabular format.
       
       Return ONLY a raw JSON array of objects. Do not include markdown formatting like \`\`\`json.
-      Each object should have the following exact keys:
-      - "Category": (string) The category of the item in UPPERCASE (e.g., "SPECIAL DISHES"). If no category is found, use "UNCATEGORIZED".
-      - "Name": (string) The name of the item in UPPERCASE (e.g., "MIX VEG").
-      - "Price": (string or number) Just the numeric price value WITHOUT any currency symbols (e.g., 170).
+      Each object should represent a row. If the image is a menu, use the keys "Category", "Name", and "Price". Otherwise, use appropriate keys representing the columns of the data.
+      Keys should be in Title Case or UPPERCASE.
 
       Ensure the output is a valid JSON array. Do NOT include descriptions or any other fields.
     `;
@@ -87,7 +84,7 @@ bot.on('photo', async (ctx) => {
     const buffer = Buffer.from(csv, 'utf-8');
 
     // Send the CSV document back
-    await ctx.replyWithDocument({ source: buffer, filename: 'menu_extract.csv' }, { reply_to_message_id: ctx.message.message_id });
+    await ctx.replyWithDocument({ source: buffer, filename: 'extracted_data.csv' }, { reply_to_message_id: ctx.message.message_id });
     await ctx.deleteMessage(messageMsg.message_id);
 
   } catch (error) {

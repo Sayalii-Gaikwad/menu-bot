@@ -119,8 +119,23 @@ async function processMediaGroup(ctxList, fileIds) {
     let text = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const menuData = JSON.parse(text);
 
+    // Clean up duplicate consecutive categories in the CSV output
+    let lastCategory = null;
+    const formattedData = menuData.map(row => {
+      const catKey = Object.keys(row).find(key => key.toLowerCase() === 'category');
+      if (catKey) {
+        const currentCategory = row[catKey];
+        if (currentCategory && currentCategory === lastCategory) {
+          return { ...row, [catKey]: '' };
+        } else if (currentCategory) {
+          lastCategory = currentCategory;
+        }
+      }
+      return row;
+    });
+
     // Convert to CSV
-    const csv = Papa.unparse(menuData);
+    const csv = Papa.unparse(formattedData);
     const buffer = Buffer.from(csv, 'utf-8');
 
     // Send the CSV document back

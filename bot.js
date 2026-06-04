@@ -45,7 +45,7 @@ bot.on('photo', async (ctx) => {
     };
 
     // Try multiple Gemini models in order of preference in case of 503 or overload errors
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro'];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-3.5-flash'];
     let responseText = null;
     let lastError = null;
 

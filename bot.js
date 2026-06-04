@@ -26,53 +26,48 @@ bot.start((ctx) => {
   ctx.reply('Welcome to the Image2CSV Bot! 📸📊\nSend me a photo of a menu, table, or list, and I will extract it into a CSV file for you!');
 });
 
-bot.on(['photo', 'document'], async (ctx) => {
-  let fileId = null;
-  let isImage = false;
+const mediaGroups = new Map();
+const MEDIA_GROUP_DELAY = 1500; // Wait 1.5 seconds to collect all photos in the album
 
-  if (ctx.message.photo) {
-    const photo = ctx.message.photo[ctx.message.photo.length - 1];
-    fileId = photo.file_id;
-    isImage = true;
-  } else if (ctx.message.document) {
-    const doc = ctx.message.document;
-    if (doc.mime_type && doc.mime_type.startsWith('image/')) {
-      fileId = doc.file_id;
-      isImage = true;
-    } else {
-      return ctx.reply('❌ Please send an image file (PNG, JPEG, etc.) to extract data.');
-    }
-  }
-
-  if (!isImage || !fileId) return;
-
-  const messageMsg = await ctx.reply('📸 Received image! Analyzing the data, please wait...');
+async function processMediaGroup(ctxList, fileIds) {
+  const ctx = ctxList[ctxList.length - 1];
+  const count = fileIds.length;
   
-  try {
-    const fileLink = await ctx.telegram.getFileLink(fileId);
+  const statusText = count > 1 
+    ? `📸 Received ${count} images! Combining and analyzing the data, please wait...`
+    : '📸 Received image! Analyzing the data, please wait...';
     
-    // Download image
-    const imageResponse = await fetch(fileLink.href);
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+  const messageMsg = await ctx.reply(statusText);
+
+  try {
+    // Download all images in parallel
+    const base64Images = await Promise.all(fileIds.map(async (fileId) => {
+      const fileLink = await ctx.telegram.getFileLink(fileId);
+      const imageResponse = await fetch(fileLink.href);
+      const arrayBuffer = await imageResponse.arrayBuffer();
+      return Buffer.from(arrayBuffer).toString('base64');
+    }));
 
     // AI Prompt
     const prompt = `
-      Analyze this image and extract all structured data into a tabular format.
+      Analyze these images and extract all structured data into a single combined tabular format.
       
       Return ONLY a raw JSON array of objects. Do not include markdown formatting like \`\`\`json.
-      Each object should represent a row. If the image is a menu, use the keys "Category", "Name", and "Price". Otherwise, use appropriate keys representing the columns of the data.
+      Each object should represent a row. If the images are menus, use the keys "Category", "Name", and "Price". Otherwise, use appropriate keys representing the columns of the data.
       Keys should be in Title Case or UPPERCASE.
 
       Ensure the output is a valid JSON array. Do NOT include descriptions or any other fields.
     `;
 
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: 'image/jpeg'
-      }
-    };
+    const contents = [
+      prompt,
+      ...base64Images.map(base64Data => ({
+        inlineData: {
+          data: base64Data,
+          mimeType: 'image/jpeg'
+        }
+      }))
+    ];
 
     // Try multiple Gemini models in order of preference in case of 503 or overload errors
     const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-3.5-flash'];
@@ -83,7 +78,7 @@ bot.on(['photo', 'document'], async (ctx) => {
       try {
         console.log(`Attempting extraction using model: ${modelName}`);
         const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent([prompt, imagePart]);
+        const result = await model.generateContent(contents);
         const response = await result.response;
         responseText = response.text();
         console.log(`Success with model: ${modelName}`);
@@ -103,7 +98,7 @@ bot.on(['photo', 'document'], async (ctx) => {
     }
 
     if (!responseText) {
-      throw lastError || new Error('All Gemini models failed to process the image.');
+      throw lastError || new Error('All Gemini models failed to process the image(s).');
     }
 
     let text = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -125,6 +120,56 @@ bot.on(['photo', 'document'], async (ctx) => {
       null, 
       `❌ Error extracting data: ${error.message || 'Unknown error'}`
     );
+  }
+}
+
+bot.on(['photo', 'document'], async (ctx) => {
+  let fileId = null;
+  let isImage = false;
+
+  if (ctx.message.photo) {
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    fileId = photo.file_id;
+    isImage = true;
+  } else if (ctx.message.document) {
+    const doc = ctx.message.document;
+    if (doc.mime_type && doc.mime_type.startsWith('image/')) {
+      fileId = doc.file_id;
+      isImage = true;
+    } else {
+      return ctx.reply('❌ Please send an image file (PNG, JPEG, etc.) to extract data.');
+    }
+  }
+
+  if (!isImage || !fileId) return;
+
+  const mediaGroupId = ctx.message.media_group_id;
+
+  if (mediaGroupId) {
+    if (!mediaGroups.has(mediaGroupId)) {
+      mediaGroups.set(mediaGroupId, {
+        ctxList: [],
+        fileIds: [],
+        timer: null
+      });
+    }
+
+    const group = mediaGroups.get(mediaGroupId);
+    group.ctxList.push(ctx);
+    group.fileIds.push(fileId);
+
+    // Reset the delay timer
+    if (group.timer) {
+      clearTimeout(group.timer);
+    }
+
+    group.timer = setTimeout(async () => {
+      mediaGroups.delete(mediaGroupId);
+      await processMediaGroup(group.ctxList, group.fileIds);
+    }, MEDIA_GROUP_DELAY);
+  } else {
+    // Single image, process immediately
+    await processMediaGroup([ctx], [fileId]);
   }
 });
 

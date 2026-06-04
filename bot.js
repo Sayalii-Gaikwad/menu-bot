@@ -8,6 +8,16 @@ import 'dotenv/config';
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Debug logging middleware
+bot.use((ctx, next) => {
+  console.log(`[DEBUG] Received update type: ${ctx.updateType}`);
+  if (ctx.message) {
+    console.log(`[DEBUG] Message text: ${ctx.message.text || '(no text)'}`);
+    console.log(`[DEBUG] Has photo: ${!!ctx.message.photo}`);
+  }
+  return next();
+});
+
 // 2. Bot logic
 bot.start((ctx) => {
   ctx.reply('Welcome to the Image2CSV Bot! 📸📊\nSend me a photo of a menu, table, or list, and I will extract it into a CSV file for you!');

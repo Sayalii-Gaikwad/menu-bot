@@ -5,6 +5,9 @@ import fetch from 'node-fetch';
 import 'dotenv/config';
 
 // 1. Initialize Bot & AI
+console.log('Starting bot initialization...');
+console.log('Loaded Token:', process.env.TELEGRAM_BOT_TOKEN ? `${process.env.TELEGRAM_BOT_TOKEN.slice(0, 6)}...` : 'undefined');
+console.log('Loaded Gemini API Key:', process.env.GEMINI_API_KEY ? 'Yes' : 'No');
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -109,9 +112,14 @@ bot.on('photo', async (ctx) => {
 });
 
 // Launch the bot
-bot.launch().then(() => {
-  console.log('Telegram Bot is running...');
-});
+console.log('Attempting to launch bot...');
+bot.launch()
+  .then(() => {
+    console.log('Telegram Bot is running successfully!');
+  })
+  .catch((err) => {
+    console.error('Failed to launch bot:', err);
+  });
 
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
